@@ -81,33 +81,6 @@ function formatWhatsappId(value) {
 /* =========================
    ROTAS
 ========================= */
-router.get('/whatsapp/status', (req, res) => {
-  res.json({
-    status: whatsappStatus,
-    ready: whatsappReady
-  });
-});
-
-router.get('/whatsapp/qr-page', (req, res) => {
-  if (!latestQr) {
-    return res.send('<h1>QR Code indisponível</h1>');
-  }
-
-  res.send(`
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>WhatsApp QR</title>
-      </head>
-      <body style="text-align:center;font-family:Arial">
-        <h1>Escaneie o QR Code</h1>
-        <img src="${latestQr}" />
-        <p>${latestQrAt}</p>
-      </body>
-    </html>
-  `);
-});
-
 router.post('/whatsapp/send', async (req, res) => {
   if (!whatsappReady) {
     return res.status(409).json({
@@ -116,31 +89,31 @@ router.post('/whatsapp/send', async (req, res) => {
   }
 
   const { to, message } = req.body;
-  const chatId = formatWhatsappId(to);
 
-  if (!chatId || !message) {
+  if (!to || !message) {
     return res.status(400).json({
       message: 'Informe "to" e "message" no corpo da requisição.'
     });
   }
 
   try {
-    await whatsappClient.sendMessage(chatId, message);
-    res.json({ status: 'sent' });
-  } catch (err) {
+    const number = to.replace(/\D/g, '');
+    const chatId = `${number}@c.us`;
+
+    // 🔥 FORÇA O CARREGAMENTO DO CHAT
+    const chat = await whatsappClient.getChatById(chatId);
+
+    await chat.sendMessage(message);
+
+    res.json({
+      success: true,
+      to: chatId
+    });
+
+  } catch (error) {
     res.status(500).json({
       message: 'Falha ao enviar mensagem.',
-      error: err.message
+      error: error.message
     });
   }
-});
-
-/* =========================
-   SERVER
-========================= */
-app.use('/', router);
-
-const server = http.createServer(app);
-server.listen(port, () => {
-  console.log(`API rodando na porta ${port}`);
 });
