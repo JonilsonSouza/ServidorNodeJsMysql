@@ -1,3 +1,11 @@
+const express = require('express');
+const app = express();
+
+/* 👇 OBRIGATÓRIO – ANTES DAS ROTAS */
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+
 'use strict'
 
 const debug = require('debug')('nodestr:server');
@@ -195,3 +203,24 @@ function execSqlQuery(sqlInsert, res) {
         console.log('executou!');
     });
 }
+app.post('/whatsapp/send', async (req, res) => {
+  const { to, message } = req.body;
+
+  if (!to || !message) {
+    return res.status(400).json({
+      message: 'Informe "to" e "message" no corpo da requisição.'
+    });
+  }
+
+  try {
+    const chatId = to.includes('@c.us') ? to : `${to}@c.us`;
+    await client.sendMessage(chatId, message);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({
+      message: 'Falha ao enviar mensagem.',
+      error: err.message
+    });
+  }
+});
