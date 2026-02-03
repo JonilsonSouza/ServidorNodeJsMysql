@@ -12,14 +12,13 @@ const router = express.Router();
 const port = 7000;
 
 /* =========================
-   CONFIGURAÇÕES BÁSICAS
+   CONFIGURAÇÕES
 ========================= */
-app.set('port', port);
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 /* =========================
-   STATUS DO WHATSAPP
+   STATUS WHATSAPP
 ========================= */
 let latestQr = null;
 let latestQrAt = null;
@@ -27,24 +26,18 @@ let whatsappStatus = 'initializing';
 let whatsappReady = false;
 
 /* =========================
-   WHATSAPP CLIENT
+   CLIENTE WHATSAPP
 ========================= */
-const whatsappPuppeteerOptions = {
-  headless: true,
-  args: ['--no-sandbox', '--disable-setuid-sandbox']
-};
-
-if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-  whatsappPuppeteerOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-}
-
 const whatsappClient = new Client({
   authStrategy: new LocalAuth(),
-  puppeteer: whatsappPuppeteerOptions
+  puppeteer: {
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  }
 });
 
 /* =========================
-   EVENTOS DO WHATSAPP
+   EVENTOS
 ========================= */
 whatsappClient.on('qr', async (qr) => {
   latestQr = await qrcode.toDataURL(qr);
@@ -54,16 +47,11 @@ whatsappClient.on('qr', async (qr) => {
 });
 
 whatsappClient.on('ready', () => {
-  latestQr = null;
-  latestQrAt = null;
   whatsappStatus = 'ready';
   whatsappReady = true;
-  console.log('✅ WhatsApp conectado');
-});
-
-whatsappClient.on('auth_failure', () => {
-  whatsappStatus = 'auth_failure';
-  whatsappReady = false;
+  latestQr = null;
+  latestQrAt = null;
+  console.log('WhatsApp pronto');
 });
 
 whatsappClient.on('disconnected', () => {
@@ -74,64 +62,75 @@ whatsappClient.on('disconnected', () => {
 whatsappClient.initialize();
 
 /* =========================
-   FUNÇÕES AUXILIARES
+   FUNÇÕES
 ========================= */
-function formatWhatsappId(rawValue) {
-  if (!rawValue) return null;
-  if (rawValue.includes('@c.us') || rawValue.includes('@g.us')) return rawValue;
-
-  const digits = rawValue.replace(/\D/g, '');
+function formatWhatsappId(value) {
+  if (!value) return null;
+  if (value.includes('@c.us')) return value;
+  const digits = value.replace(/\D/g, '');
   if (!digits) return null;
-
   return `${digits}@c.us`;
 }
 
-function execSqlQuery(sql, res) {
-  const connection = mysql.createConnection({
-    host: 'localhost',
-    port: '3306',
-    user: 'root',
-    password: 'root',
-    database: 'banconodejs'
-  });
-
-  connection.query(sql, (error, results) => {
-    if (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Erro no banco de dados' });
-    } else {
-      res.json(results);
-    }
-    connection.end();
-  });
-}
-
 /* =========================
-   ROTAS DE USUÁRIOS
-========================= */
-router.get('/users', (req, res) => {
-  execSqlQuery('SELECT * FROM usuarios', res);
-});
-
-router.get('/users/:id', (req, res) => {
-  execSqlQuery(
-    `SELECT * FROM usuarios WHERE codigo LIKE "${req.params.id}%"`,
-    res
-  );
-});
-
-router.get('/users/pesquisa/:name', (req, res) => {
-  execSqlQuery(
-    `SELECT * FROM usuarios WHERE nome LIKE "${req.params.name}%"`,
-    res
-  );
-});
-
-/* =========================
-   ROTAS DO WHATSAPP
+   ROTAS
 ========================= */
 router.get('/whatsapp/status', (req, res) => {
   res.json({
     status: whatsappStatus,
-    ready: whatsappReady,
-    qrAvailable: Boole
+    ready: whatsappReady
+  });
+});
+
+router.get('/whatsapp/qr-page', (req, res) => {
+  if (!latestQr) {
+    return res.send('<h1>QR indisponível</h1>');
+  }
+
+  res.send(`
+    <html>
+      <body style="text-align:center">
+        <h1>Escaneie o QR</h1>
+        <img src="${latestQr}" />
+        <p>${latestQrAt}</p>
+      </body>
+    </html>
+  `);
+});
+
+router.post('/whatsapp/send', async (req, res) => {
+  if (!whatsappReady) {
+    return res.status(409).json({
+      message: 'WhatsApp não está pronto'
+    });
+  }
+
+  const { to, message } = req.body;
+  const chatId = formatWhatsappId(to);
+
+  if (!chatId || !message) {
+    return res.status(400).json({
+      message: 'Informe "to" e "message"'
+    });
+  }
+
+  try {
+    await whatsappClient.sendMessage(chatId, message);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({
+      message: 'Erro ao enviar',
+      error: err.message
+    });
+  }
+});
+
+/* =========================
+   SERVER
+========================= */
+app.use('/', router);
+
+const server = http.createServer(app);
+server.listen(port, () => {
+  console.log(`API rodando na porta ${port}`);
+});
