@@ -1,11 +1,3 @@
-const express = require('express');
-const app = express();
-
-/* 👇 OBRIGATÓRIO – ANTES DAS ROTAS */
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-
 'use strict'
 
 const debug = require('debug')('nodestr:server');
