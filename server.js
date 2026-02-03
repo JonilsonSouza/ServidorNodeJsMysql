@@ -2,7 +2,6 @@
 
 const http = require('http');
 const express = require('express');
-const mysql = require('mysql');
 const bodyParser = require('body-parser');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
@@ -12,7 +11,7 @@ const router = express.Router();
 const port = 7000;
 
 /* =========================
-   CONFIGURAÇÕES
+   MIDDLEWARE
 ========================= */
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -47,11 +46,16 @@ whatsappClient.on('qr', async (qr) => {
 });
 
 whatsappClient.on('ready', () => {
-  whatsappStatus = 'ready';
-  whatsappReady = true;
   latestQr = null;
   latestQrAt = null;
-  console.log('WhatsApp pronto');
+  whatsappStatus = 'ready';
+  whatsappReady = true;
+  console.log('WhatsApp conectado');
+});
+
+whatsappClient.on('auth_failure', () => {
+  whatsappStatus = 'auth_failure';
+  whatsappReady = false;
 });
 
 whatsappClient.on('disconnected', () => {
@@ -67,8 +71,10 @@ whatsappClient.initialize();
 function formatWhatsappId(value) {
   if (!value) return null;
   if (value.includes('@c.us')) return value;
+
   const digits = value.replace(/\D/g, '');
   if (!digits) return null;
+
   return `${digits}@c.us`;
 }
 
@@ -84,13 +90,17 @@ router.get('/whatsapp/status', (req, res) => {
 
 router.get('/whatsapp/qr-page', (req, res) => {
   if (!latestQr) {
-    return res.send('<h1>QR indisponível</h1>');
+    return res.send('<h1>QR Code indisponível</h1>');
   }
 
   res.send(`
     <html>
-      <body style="text-align:center">
-        <h1>Escaneie o QR</h1>
+      <head>
+        <meta charset="utf-8" />
+        <title>WhatsApp QR</title>
+      </head>
+      <body style="text-align:center;font-family:Arial">
+        <h1>Escaneie o QR Code</h1>
         <img src="${latestQr}" />
         <p>${latestQrAt}</p>
       </body>
@@ -101,7 +111,7 @@ router.get('/whatsapp/qr-page', (req, res) => {
 router.post('/whatsapp/send', async (req, res) => {
   if (!whatsappReady) {
     return res.status(409).json({
-      message: 'WhatsApp não está pronto'
+      message: 'WhatsApp não está pronto. Escaneie o QR.'
     });
   }
 
@@ -110,16 +120,16 @@ router.post('/whatsapp/send', async (req, res) => {
 
   if (!chatId || !message) {
     return res.status(400).json({
-      message: 'Informe "to" e "message"'
+      message: 'Informe "to" e "message" no corpo da requisição.'
     });
   }
 
   try {
     await whatsappClient.sendMessage(chatId, message);
-    res.json({ success: true });
+    res.json({ status: 'sent' });
   } catch (err) {
     res.status(500).json({
-      message: 'Erro ao enviar',
+      message: 'Falha ao enviar mensagem.',
       error: err.message
     });
   }
